@@ -111,6 +111,9 @@ services:
             - mongo
             - policy-service
             - worker-service
+        environment:
+            OPERATOR_ID: ${OPERATOR_ID}
+            OPERATOR_KEY: ${OPERATOR_KEY}
         volumes:
             - ./guardian-service/tls:/usr/local/app/tls:ro
             - ./guardian-service/configs:/usr/local/app/configs:ro
