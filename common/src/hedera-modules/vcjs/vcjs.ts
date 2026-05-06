@@ -2,9 +2,9 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { ld as vcjs } from '@transmute/vc.js';
 import { Ed25519Signature2018, Ed25519VerificationKey2018 } from '@transmute/ed25519-signature-2018';
-import { PrivateKey } from '@hiero-ledger/sdk';
+import { PrivateKey } from '@hashgraph/sdk';
 import { CheckResult } from '@transmute/jsonld-schema';
-import { GenerateUUIDv4, ICredentialSubject, IVC, Schema, SignatureType } from '@guardian/interfaces';
+import { GenerateUUIDv4, ICredentialSubject, IVC, SignatureType } from '@guardian/interfaces';
 import { VcDocument } from './vc-document.js';
 import { VpDocument } from './vp-document.js';
 import { VcSubject } from './vc-subject.js';
@@ -263,10 +263,6 @@ export class VCJS {
         addFormats(ajv);
 
         this.prepareSchema(schema);
-
-        const schemaObject = Schema.fromVc(schema);
-
-        ContextHelper.setContext(subject, schemaObject);
 
         const validate = await ajv.compileAsync(schema);
         const valid = validate(vcObject);
