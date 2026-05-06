@@ -137,7 +137,7 @@ export class IpfsClientClass {
 
             case IpfsProvider.LOCAL: {
                 const { path } = await this.client.add(file);
-                cid = path;
+                cid = this.parseCID(path);
                 break;
             }
 

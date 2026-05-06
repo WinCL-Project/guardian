@@ -2,9 +2,9 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { ld as vcjs } from '@transmute/vc.js';
 import { Ed25519Signature2018, Ed25519VerificationKey2018 } from '@transmute/ed25519-signature-2018';
-import { PrivateKey } from '@hashgraph/sdk';
+import { PrivateKey } from '@hiero-ledger/sdk';
 import { CheckResult } from '@transmute/jsonld-schema';
-import { GenerateUUIDv4, ICredentialSubject, IVC, SignatureType } from '@guardian/interfaces';
+import { GenerateUUIDv4, ICredentialSubject, IVC, Schema, SignatureType } from '@guardian/interfaces';
 import { VcDocument } from './vc-document.js';
 import { VpDocument } from './vp-document.js';
 import { VcSubject } from './vc-subject.js';
@@ -111,6 +111,15 @@ export class VCJS {
      * @private
      */
     private schemaLoader: SchemaLoaderFunction;
+
+    /**
+     * Maps lowercase IPFS URIs to their original mixed-case form.
+     * AJV normalizes ipfs:// URIs by lowercasing the "host" component (the CID),
+     * breaking CIDv0 (Qm...) lookups. We collect originals during prepareSchema
+     * and restore them in loadSchema.
+     * @private
+     */
+    private readonly ipfsCidMap: Map<string, string> = new Map();
 
     constructor() {
         this.schemaContext = [];
@@ -233,7 +242,9 @@ export class VCJS {
             throw new Error('"credentialSubject" property is required.');
         }
 
-        const subjects = vc.credentialSubject;
+        const vcObject = JSON.parse(JSON.stringify(vc));
+
+        const subjects = vcObject.credentialSubject;
         const subject = Array.isArray(subjects) ? subjects[0] : subjects;
 
         if (!this.schemaLoader) {
@@ -253,8 +264,12 @@ export class VCJS {
 
         this.prepareSchema(schema);
 
+        const schemaObject = Schema.fromVc(schema);
+
+        ContextHelper.setContext(subject, schemaObject);
+
         const validate = await ajv.compileAsync(schema);
-        const valid = validate(vc);
+        const valid = validate(vcObject);
 
         return new CheckResult(valid, 'JSON_SCHEMA_VALIDATION_ERROR', validate.errors as any);
     }
@@ -286,7 +301,32 @@ export class VCJS {
      *
      * @param schema Schema
      */
+    private collectIpfsRefs(obj: any): void {
+        if (!obj || typeof obj !== 'object') {
+            return;
+        }
+        if (Array.isArray(obj)) {
+            for (const item of obj) {
+                this.collectIpfsRefs(item);
+            }
+            return;
+        }
+        for (const key of Object.keys(obj)) {
+            if (key === '$ref' && typeof obj[key] === 'string' && obj[key].startsWith(IPFS.IPFS_PROTOCOL)) {
+                const uri: string = obj[key];
+                this.ipfsCidMap.set(uri.toLowerCase(), uri);
+            } else {
+                this.collectIpfsRefs(obj[key]);
+            }
+        }
+    }
+
     private prepareSchema(schema: any) {
+
+        delete schema.additionalProperties;
+
+        this.collectIpfsRefs(schema);
+
         const defsObj = schema.$defs;
         if (!defsObj) {
             return;
@@ -395,7 +435,10 @@ export class VCJS {
         try {
             let response: any;
             if (uri.startsWith(IPFS.IPFS_PROTOCOL)) {
-                const cidMatches = uri.match(IPFS.CID_PATTERN);
+                // AJV normalizes ipfs:// URIs by lowercasing the host component (the CID).
+                // CIDv0 (Qm...) is case-sensitive base58, so we must recover the original.
+                const resolvedUri = this.ipfsCidMap.get(uri.toLowerCase()) ?? uri;
+                const cidMatches = resolvedUri.match(IPFS.CID_PATTERN);
                 response = JSON.parse(
                     Buffer.from(
                         await IPFS.getFile(
