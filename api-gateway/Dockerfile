@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=${YARN_CACHE_FOLDER},sharing=private \
     yarn install --immutable
 COPY --link api-gateway/environments environments/
 COPY --link api-gateway/src src/
-RUN yarn run build:prod
+RUN yarn run build:demo
 
 # Stage 5: Create the final image
 FROM node:${NODE_VERSION} AS image
