@@ -67,7 +67,7 @@ export class UserAccessTokenService {
             });
         } catch (err) {
             console.error(err);
-            throw new InternalServerErrorException('JWT keys are invalid or misconfigured');
+            throw new InternalServerErrorException('Refresh token verification failed');
         }
     }
 

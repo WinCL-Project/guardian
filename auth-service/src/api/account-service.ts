@@ -435,6 +435,10 @@ export class AccountService extends NatsService {
             async (msg: { refreshToken: string }) => {
                 const { refreshToken } = msg;
 
+                if (!refreshToken) {
+                    return new MessageResponse({});
+                }
+
                 const userAccessTokenService = await UserAccessTokenService.New();
                 const decryptedToken = await userAccessTokenService.verifyRefreshToken(refreshToken);
 
