@@ -204,6 +204,9 @@ services:
             - logger-service
             - message-broker
             - mongo
+        environment:
+            OPERATOR_ID: ${OPERATOR_ID}
+            OPERATOR_KEY: ${OPERATOR_KEY}
         volumes:
             - ./policy-service/tls:/usr/local/app/tls:ro
             - ./policy-service/configs:/usr/local/app/configs:ro
