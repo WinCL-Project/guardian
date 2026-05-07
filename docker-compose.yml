@@ -11,6 +11,8 @@ x-service-template: &service-template
         - ./configs/.env.${GUARDIAN_ENV}.guardian.system
     environment:
         GUARDIAN_ENV: ${GUARDIAN_ENV}
+        OPERATOR_ID: ${OPERATOR_ID}
+        OPERATOR_KEY: ${OPERATOR_KEY}
 
 name: guardian-demo
 
@@ -32,7 +34,9 @@ services:
             - '3013'
 
     api-gateway:
-        image: gcr.io/hedera-registry/api-gateway-demo:${GUARDIAN_VERSION:-latest}
+        build:
+            context: .
+            dockerfile: api-gateway/Dockerfile
         depends_on:
             - auth-service
             - cache
@@ -111,9 +115,6 @@ services:
             - mongo
             - policy-service
             - worker-service
-        environment:
-            OPERATOR_ID: ${OPERATOR_ID}
-            OPERATOR_KEY: ${OPERATOR_KEY}
         volumes:
             - ./guardian-service/tls:/usr/local/app/tls:ro
             - ./guardian-service/configs:/usr/local/app/configs:ro
@@ -204,9 +205,9 @@ services:
             - logger-service
             - message-broker
             - mongo
-        environment:
-            OPERATOR_ID: ${OPERATOR_ID}
-            OPERATOR_KEY: ${OPERATOR_KEY}
+#        environment:
+#            OPERATOR_ID: ${OPERATOR_ID}
+#            OPERATOR_KEY: ${OPERATOR_KEY}
         volumes:
             - ./policy-service/tls:/usr/local/app/tls:ro
             - ./policy-service/configs:/usr/local/app/configs:ro
@@ -307,7 +308,7 @@ services:
             TOPIC_VIEWER_HOST: topic-viewer
             TOPIC_VIEWER_PORT: 3006
         ports:
-            - '80:80'
+            - '3000:80'
         init: true
 
     worker-service:
