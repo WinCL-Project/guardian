@@ -308,7 +308,8 @@ services:
             TOPIC_VIEWER_HOST: topic-viewer
             TOPIC_VIEWER_PORT: 3006
         ports:
-            - '80:80'
+            - '3000:80'
+            - '443:443'
         init: true
 
     worker-service:
