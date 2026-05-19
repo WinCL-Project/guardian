@@ -16,8 +16,8 @@ services:
     image: mongo:6.0.26
     command: "--setParameter allowDiskUseByDefault=true"
     restart: always
-    volumes:
-        - mongo_data:/data/db
+#    volumes:
+#        - mongo_data:/data/db
     expose:
       - 27017
 
@@ -76,7 +76,7 @@ services:
       - '8200:8200'
     environment:
       VAULT_SERVER: "http://0.0.0.0:8200"
-      VAULT_DEV_ROOT_TOKEN_ID: "Q5D>3nu+Z#TbN.@9PWHSyL"
+      VAULT_DEV_ROOT_TOKEN_ID: "guardian-root-token"
     cap_add:
       - IPC_LOCK
     volumes:
@@ -193,10 +193,10 @@ services:
 
   policy-service:
     <<: *service-template
-#    image: gcr.io/hedera-registry/policy-service:${GUARDIAN_VERSION:-latest}
-    build:
-        context: .
-        dockerfile: policy-service/Dockerfile
+    image: gcr.io/hedera-registry/policy-service:${GUARDIAN_VERSION:-latest}
+#    build:
+#        context: .
+#        dockerfile: policy-service/Dockerfile
     depends_on:
       - mongo
       - message-broker
@@ -211,10 +211,10 @@ services:
 
   guardian-service:
     <<: *service-template
-#    image: gcr.io/hedera-registry/guardian-service:${GUARDIAN_VERSION:-latest}
-    build:
-        context: .
-        dockerfile: guardian-service/Dockerfile
+    image: gcr.io/hedera-registry/guardian-service:${GUARDIAN_VERSION:-latest}
+#    build:
+#        context: .
+#        dockerfile: guardian-service/Dockerfile
     volumes:
       - ./guardian-service/tls:/usr/local/app/tls:ro
       - ./guardian-service/configs:/usr/local/app/configs:ro
