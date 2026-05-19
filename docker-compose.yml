@@ -1,344 +1,322 @@
-# This file is linted and formatted using Docker Compose Linter (https://github.com/zavoloklom/docker-compose-linter):
-# npx dclint . --fix=true
-
-# Please note variables defined in the "environment" section will override the same variables defined in the "env_file"
-# See # https://docs.docker.com/compose/environment-variables/envvars-precedence/ for more details
+# https://docs.docker.com/compose/environment-variables/envvars-precedence/
+# Environment leverage the gerarchy defined in the docker compose between "env_file" and "environment" attributes
+# ecosystem variables defined in the "env_file" .env.${GUARDIAN_ENV}.guardian.system
+# specific service variables defined by "environment" can override what is defined in the ecosystem file
 
 # YAML anchor that contains common configuration elements for our services
 x-service-template: &service-template
-    init: true
-    env_file:
-        - ./configs/.env.${GUARDIAN_ENV}.guardian.system
-    environment:
-        GUARDIAN_ENV: ${GUARDIAN_ENV}
-        OPERATOR_ID: ${OPERATOR_ID}
-        OPERATOR_KEY: ${OPERATOR_KEY}
-
-name: guardian-demo
+  init: true
+  env_file:
+    - ./configs/.env.${GUARDIAN_ENV}.guardian.system
+  environment:
+    - GUARDIAN_ENV=${GUARDIAN_ENV}
 
 services:
-    ai-service:
-        image: gcr.io/hedera-registry/ai-service:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - logger-service
-            - message-broker
-            - mongo
-        volumes:
-            - ./ai-service/faiss-vector:/usr/local/app/faiss-vector:rw
-            - ./ai-service/data:/usr/local/app/data:rw
-        environment:
-            VECTOR_STORAGE_PATH: ./faiss-vector
-            DOCS_STORAGE_PATH: ./data/generated-data
-        <<: *service-template
-        expose:
-            - '3013'
+  mongo:
+    image: mongo:6.0.26
+    command: "--setParameter allowDiskUseByDefault=true"
+    restart: always
+    volumes:
+        - mongo_data:/data/db
+    expose:
+      - 27017
 
-    api-gateway:
-        build:
-            context: .
-            dockerfile: api-gateway/Dockerfile
-        depends_on:
-            - auth-service
-            - cache
-            - guardian-service
-            - logger-service
-            - message-broker
-            - mongo
-        # - seq
-        volumes:
-            - ./api-gateway/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '3002'
-            - '6555'
+  mongo-express:
+    image: mongo-express:1.0.2-20
+    expose:
+      - 8081
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_SITE_BASEURL: /mongo-admin # default credentials: admin/pass
+    depends_on:
+      - mongo
 
-    application-events:
-        image: gcr.io/hedera-registry/application-events:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - auth-service
-            - guardian-service
-            - logger-service
-            - message-broker
-            - mongo
-        <<: *service-template
-        expose:
-            - '3012'
+  cache:
+    image: registry.redict.io/redict:7.3.6-alpine
+    restart: always
+    expose:
+      - 6379
 
-    auth-service:
-        image: gcr.io/hedera-registry/auth-service-demo:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - logger-service
-            - message-broker
-            - mongo
-            - vault
-        volumes:
-            - ./auth-service/tls:/usr/local/app/tls:ro
-            - ./auth-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '6555'
-            - '5005'
+#  seq:
+#    image: datalust/seq
+#    restart: unless-stopped
+#    environment:
+#      ACCEPT_EULA: "Y"
+#    ports:
+#      - "5341:80"
+#    volumes:
+#      - seq_data:/data
 
-    cache:
-        image: registry.redict.io/redict:7.3.6-alpine
-        restart: always
-        expose:
-            - '6379'
-        init: true
+  ipfs-node:
+    image: ipfs/kubo:v0.38.2
+    ports:
+      - "5001:5001"
+      - "4001:4001"
+      - "8080:8080"
+    volumes:
+      - ipfs_data:/data/ipfs:rw
+      - ipfs_export:/export:rw
 
-    grafana:
-        image: grafana/grafana:10.0.10
-        volumes:
-            - grafana_data:/var/lib/grafana
-            - ./grafana/provisioning:/etc/grafana/provisioning
-            - ./grafana/dashboards:/etc/grafana/dashboards
-        environment:
-            GF_AUTH_DISABLE_LOGIN_FORM: true
-            GF_AUTH_ANONYMOUS_ENABLED: true
-            GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
-            GF_SERVER_HTTP_PORT: 9080
-            GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/prometheus-dashboard.json
-        ports:
-            - '127.0.0.1:9080:9080'
-        networks:
-            - monitoring
-        init: true
+  message-broker:
+    image: nats:2.9.25
+    expose:
+      - 4222
+    ports:
+      - '8222:8222'
+    command: '-c /etc/nats/nats.conf --http_port 8222'
+    volumes:
+      - ./configs/nats.conf:/etc/nats/nats.conf
 
-    guardian-service:
-        build:
-            context: .
-            dockerfile: guardian-service/Dockerfile
-        depends_on:
-            - auth-service
-            - logger-service
-            - message-broker
-            - mongo
-            - policy-service
-            - worker-service
-        volumes:
-            - ./guardian-service/tls:/usr/local/app/tls:ro
-            - ./guardian-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '6555'
-            - '5007'
+  vault:
+    image: hashicorp/vault:1.12.11
+    expose:
+      - 8200
+    ports:
+      - '8200:8200'
+    environment:
+      VAULT_SERVER: "http://0.0.0.0:8200"
+      VAULT_DEV_ROOT_TOKEN_ID: "Q5D>3nu+Z#TbN.@9PWHSyL"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - ./file:/vault/file:rw
+      - ./config:/vault/config:rw
 
-    ipfs-node:
-        image: ipfs/kubo:v0.40.1
-        volumes:
-            - ipfs_data:/data/ipfs:rw
-            - ipfs_export:/export:rw
-        environment:
-            IPFS_TELEMETRY: off # valid options: 'on' (default), 'off', 'auto' (https://github.com/ipfs/kubo/blob/master/docs/telemetry.md)
-        ports:
-            - '127.0.0.1:4001:4001'
-            - '127.0.0.1:5001:5001'
-            - '127.0.0.1:8080:8080'
-        init: true
+  notification-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/notification-service:${GUARDIAN_VERSION:-latest}
+    depends_on:
+      - message-broker
+    volumes:
+      - ./notification-service/configs:/usr/local/app/configs:ro
 
-    logger-service:
-        image: gcr.io/hedera-registry/logger-service:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - message-broker
-        volumes:
-            - ./logger-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '6555'
+  logger-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/logger-service:${GUARDIAN_VERSION:-latest}
+    depends_on:
+      - message-broker
+    expose:
+      - 6555
+    volumes:
+      - ./logger-service/configs:/usr/local/app/configs:ro
 
-    message-broker:
-        image: nats:2.9.25
-        volumes:
-            - ./configs/nats.conf:/etc/nats/nats.conf
-        ports:
-            - '127.0.0.1:8222:8222'
-        command: "-c /etc/nats/nats.conf --http_port 8222"
-        expose:
-            - '4222'
-        init: true
+  queue-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/queue-service:${GUARDIAN_VERSION:-latest}
+    depends_on:
+      - mongo
+      - message-broker
+      - logger-service
+    expose:
+      - 6555
+    volumes:
+      - ./queue-service/configs:/usr/local/app/configs:ro
 
-    mongo:
-        image: mongo:6.0.26
-        command: "--setParameter allowDiskUseByDefault=true"
-        # command: "--setParameter allowDiskUseByDefault=true --quiet --logpath /dev/null" # use this command to reduce log noise
-        restart: always
-        expose:
-            - '27017'
-        volumes:
-            - mongo_data:/data/db
-        init: true
+  topic-listener-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/topic-listener-service:${GUARDIAN_VERSION:-latest}
+    depends_on:
+      - mongo
+      - message-broker
+      - queue-service
+    expose:
+      - 6555
+    volumes:
+      - ./topic-listener-service/configs:/usr/local/app/configs:ro
 
-    mongo-express:
-        image: mongo-express:1.0.2-20
-        depends_on:
-            - mongo
-        environment:
-            ME_CONFIG_MONGODB_URL: mongodb://mongo:27017
-            ME_CONFIG_SITE_BASEURL: /mongo-admin
-            ME_CONFIG_BASICAUTH_USERNAME: admin
-            ME_CONFIG_BASICAUTH_PASSWORD: pass
-        expose:
-            - '8081'
-        init: true
+  worker-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/worker-service:${GUARDIAN_VERSION:-latest}
+    depends_on:
+      queue-service:
+        condition: service_started
+      ipfs-node:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    expose:
+      - 6555
+    volumes:
+      - ./worker-service/tls:/usr/local/app/tls:ro
+      - ./worker-service/configs:/usr/local/app/configs:ro
+    deploy:
+      replicas: 2
 
-    mrv-sender:
-        image: gcr.io/hedera-registry/mrv-sender:${GUARDIAN_VERSION:-latest}
-        expose:
-            - '3005'
-            - '5008'
-        init: true
+  auth-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/auth-service-demo:${GUARDIAN_VERSION:-latest}
+    volumes:
+      - ./auth-service/tls:/usr/local/app/tls:ro
+      - ./auth-service/configs:/usr/local/app/configs:ro
+    depends_on:
+      - mongo
+      - vault
+      - message-broker
+      - logger-service
+    expose:
+      - 6555
+      - 5005
 
-    notification-service:
-        image: gcr.io/hedera-registry/notification-service:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - message-broker
-        volumes:
-            - ./notification-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
+  api-gateway:
+    <<: *service-template
+    image: gcr.io/hedera-registry/api-gateway-demo:${GUARDIAN_VERSION:-latest}
+    expose:
+      - 3002
+      - 6555
+    depends_on:
+      - mongo
+      - cache
+#      - seq
+      - message-broker
+      - guardian-service
+      - auth-service
+      - logger-service
+    volumes:
+      - ./api-gateway/configs:/usr/local/app/configs:ro
 
-    policy-service:
-        build:
-            context: .
-            dockerfile: policy-service/Dockerfile
-        depends_on:
-            - auth-service
-            - logger-service
-            - message-broker
-            - mongo
-#        environment:
-#            OPERATOR_ID: ${OPERATOR_ID}
-#            OPERATOR_KEY: ${OPERATOR_KEY}
-        volumes:
-            - ./policy-service/tls:/usr/local/app/tls:ro
-            - ./policy-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '5006'
+  ai-service:
+    <<: *service-template
+    image: gcr.io/hedera-registry/ai-service:${GUARDIAN_VERSION:-latest}
+    expose:
+      - 3013
+    depends_on:
+      - mongo
+      - message-broker
+      - logger-service
+    volumes:
+      - ./ai-service/faiss-vector:/usr/local/app/faiss-vector:rw
+      - ./ai-service/data:/usr/local/app/data:rw
+    environment:
+      - VECTOR_STORAGE_PATH=./faiss-vector
+      - DOCS_STORAGE_PATH=./data/generated-data
 
-    prometheus:
-        image: prom/prometheus:v2.44.0
-        volumes:
-            - ./prometheus.yml:/etc/prometheus/prometheus.yml
-            - prometheus_data:/prometheus
-        ports:
-            - '127.0.0.1:9090:9090'
-        networks:
-            - monitoring
-        command:
-            - "--config.file=/etc/prometheus/prometheus.yml"
-            - "--storage.tsdb.path=/prometheus"
-            - "--web.console.libraries=/etc/prometheus/console_libraries"
-            - "--web.console.templates=/etc/prometheus/consoles"
-            - "--web.enable-lifecycle"
-        restart: unless-stopped
-        init: true
+  policy-service:
+    <<: *service-template
+#    image: gcr.io/hedera-registry/policy-service:${GUARDIAN_VERSION:-latest}
+    build:
+        context: .
+        dockerfile: policy-service/Dockerfile
+    depends_on:
+      - mongo
+      - message-broker
+      - auth-service
+      - logger-service
+    expose:
+      - 50000-60000
+      - 5006
+    volumes:
+      - ./policy-service/tls:/usr/local/app/tls:ro
+      - ./policy-service/configs:/usr/local/app/configs:ro
 
-    queue-service:
-        image: gcr.io/hedera-registry/queue-service:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - logger-service
-            - message-broker
-            - mongo
-        volumes:
-            - ./queue-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '6555'
+  guardian-service:
+    <<: *service-template
+#    image: gcr.io/hedera-registry/guardian-service:${GUARDIAN_VERSION:-latest}
+    build:
+        context: .
+        dockerfile: guardian-service/Dockerfile
+    volumes:
+      - ./guardian-service/tls:/usr/local/app/tls:ro
+      - ./guardian-service/configs:/usr/local/app/configs:ro
+    depends_on:
+      - mongo
+      - message-broker
+      - auth-service
+      - logger-service
+      - worker-service
+      - policy-service
+    expose:
+      - 6555
+      - 5007
 
-    # seq:
-    #   image: datalust/seq:2025.2
-    #   volumes:
-    #     - seq_data:/data
-    #   environment:
-    #     ACCEPT_EULA: "Y"
-    #     SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
-    #   ports:
-    #     - '127.0.0.1:5341:80'
-    #   restart: unless-stopped
-    #   init: true
+  application-events:
+    <<: *service-template
+    image: gcr.io/hedera-registry/application-events:${GUARDIAN_VERSION:-latest}
+    init: true
+    depends_on:
+      - mongo
+      - message-broker
+      - guardian-service
+      - auth-service
+      - logger-service
+    expose:
+    - 3012
 
-    topic-listener-service:
-        image: gcr.io/hedera-registry/topic-listener-service:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - message-broker
-            - mongo
-            - queue-service
-        volumes:
-            - ./topic-listener-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        expose:
-            - '6555'
+  mrv-sender:
+    image: gcr.io/hedera-registry/mrv-sender:${GUARDIAN_VERSION:-latest}
+    init: true
+    expose:
+      - 3005
+      - 5008
 
-    topic-viewer:
-        image: gcr.io/hedera-registry/topic-viewer:${GUARDIAN_VERSION:-latest}
-        expose:
-            - '3006'
-            - '5009'
-        init: true
+  topic-viewer:
+    image: gcr.io/hedera-registry/topic-viewer:${GUARDIAN_VERSION:-latest}
+    init: true
+    expose:
+      - 3006
+      - 5009
 
-    vault:
-        image: hashicorp/vault:1.12.11
-        volumes:
-            - ./file:/vault/file:rw
-            - ./config:/vault/config:rw
-        environment:
-            VAULT_SERVER: "http://0.0.0.0:8200"
-            VAULT_DEV_ROOT_TOKEN_ID: "hVt34rnXcHnxp520LHYK"
-        ports:
-            - '127.0.0.1:8200:8200'
-        cap_add:
-            - IPC_LOCK
-        expose:
-            - '8200'
-        init: true
+  web-proxy:
+    image: gcr.io/hedera-registry/frontend-demo:${GUARDIAN_VERSION:-latest}
+    init: true
+    environment:
+      GATEWAY_CLIENT_MAX_BODY_SIZE: 1024m
+      GATEWAY_HOST: api-gateway
+      GATEWAY_PORT: 3002
+      MRV_SENDER_HOST: mrv-sender
+      MRV_SENDER_PORT: 3005
+      TOPIC_VIEWER_HOST: topic-viewer
+      TOPIC_VIEWER_PORT: 3006
+    ports:
+      - "3000:80"
+    depends_on:
+      - guardian-service
+      - auth-service
+      - api-gateway
+      - mrv-sender
 
-    web-proxy:
-        image: gcr.io/hedera-registry/frontend-demo:${GUARDIAN_VERSION:-latest}
-        depends_on:
-            - api-gateway
-            - auth-service
-            - guardian-service
-            - mrv-sender
-        environment:
-            GATEWAY_CLIENT_MAX_BODY_SIZE: 1024m
-            GATEWAY_HOST: api-gateway
-            GATEWAY_PORT: 3002
-            MRV_SENDER_HOST: mrv-sender
-            MRV_SENDER_PORT: 3005
-            TOPIC_VIEWER_HOST: topic-viewer
-            TOPIC_VIEWER_PORT: 3006
-        ports:
-            - '127.0.0.1:3000:80'
-        init: true
+  prometheus:
+    image: prom/prometheus:v2.44.0
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
 
-    worker-service:
-        build:
-            context: .
-            dockerfile: worker-service/Dockerfile
-        depends_on:
-            auth-service:
-                condition: service_started
-            ipfs-node:
-                condition: service_healthy
-            queue-service:
-                condition: service_started
-        volumes:
-            - ./worker-service/tls:/usr/local/app/tls:ro
-            - ./worker-service/configs:/usr/local/app/configs:ro
-        <<: *service-template
-        deploy:
-            replicas: 2
-        expose:
-            - '6555'
-
-networks:
-    monitoring:
-        driver: bridge
+  grafana:
+    image: grafana/grafana:10.0.10
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    environment:
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_SERVER_HTTP_PORT=9080
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/prometheus-dashboard.json
+    ports:
+      - "9080:9080"
+    networks:
+      - monitoring
 
 volumes:
-    # seq_data:
-    prometheus_data:
-    grafana_data:
-    ipfs_data:
-    ipfs_export:
-    mongo_data:
+  prometheus_data:
+  grafana_data:
+  ipfs_data:
+  ipfs_export:
+  mongo_data:
+#  seq_data:
+
+networks:
+  monitoring:
+    driver: bridge

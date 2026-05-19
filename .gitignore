@@ -25,3 +25,5 @@ runtime-data/
 logs/
 **/logs/
 /.run/
+mongo_data/
+vault.tgz
